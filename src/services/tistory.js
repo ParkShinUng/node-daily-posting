@@ -11,7 +11,7 @@ class TistoryService {
     this.browserManager = new BrowserManager();
     this.page = null;
     this.request = null;
-    this.blogName = null;
+    this.blogName = config.tistory.blogName;
   }
 
   /**
@@ -38,9 +38,6 @@ class TistoryService {
       logger.info('기존 세션으로 로그인 상태 유지');
     }
 
-    // 블로그 이름 가져오기
-    await this.fetchBlogName();
-
     return this;
   }
 
@@ -66,39 +63,30 @@ class TistoryService {
     }
 
     try {
-      // 로그인 페이지로 이동
-      await this.page.goto('https://www.tistory.com/auth/login', { waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(2000);
+      await this.page.goto(TISOTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
 
-      // 카카오 로그인 버튼 클릭
-      const kakaoButton = await this.page.waitForSelector('a.btn_login.link_kakao_id, a[href*="kakao"], .kakao_login', {
-        timeout: 10000,
-      });
-      await kakaoButton.click();
+      if ((await this.page.locator("a.btn_login").count()) > 0) {
+        await this.page.click("a.btn_login");
+        await this.page.waitForLoadState("domcontentloaded");
 
-      await this.page.waitForTimeout(3000);
+        await this.page.fill('input[name="loginId"]', config.tistory.email);
+        await this.page.fill('input[name="password"]', config.tistory.password);
+        await this.page.click('button[type="submit"]');
 
-      // 카카오 로그인 폼
-      const emailInput = await this.page.waitForSelector('input[name="loginId"], input#loginId, input[name="email"]', {
-        timeout: 15000,
-      });
-      await emailInput.fill(config.tistory.email);
+        await this.page.waitForLoadState("domcontentloaded");
+        await this.page.waitForTimeout(3000);
+        const descLogin = await this.page.locator('p.desc_login', { hasText: '카카오톡으로 로그인 확인 메세지가 전송되었습니다.' });
+        if (await descLogin.count() > 0) {
+          emit({ event: "log", message: "Request Login Auth" });
+        }
 
-      const passwordInput = await this.page.waitForSelector('input[name="password"], input#password', {
-        timeout: 5000,
-      });
-      await passwordInput.fill(config.tistory.password);
+        while (!this.page.url().includes("www.tistory.com/")) {
+          await this.page.waitForTimeout(100);
+        }
 
-      // 로그인 버튼 클릭
-      const loginButton = await this.page.waitForSelector('button[type="submit"], button.submit, input[type="submit"]');
-      await loginButton.click();
-
-      // 로그인 완료 대기
-      await this.page.waitForURL(/tistory\.com/, { timeout: 30000 });
-      await this.page.waitForTimeout(3000);
-
-      // 세션 저장
-      await this.browserManager.saveSession();
+        // 세션 저장
+        await this.browserManager.saveSession();
+      }
 
       logger.info('Tistory 로그인 성공');
     } catch (error) {
@@ -107,133 +95,70 @@ class TistoryService {
     }
   }
 
-  /**
-   * 블로그 이름 가져오기
-   */
-  async fetchBlogName() {
-    if (config.tistory.blogName) {
-      this.blogName = config.tistory.blogName;
-      return;
-    }
+  async createPostHeaders() {
+    const userAgent = await this.page.evaluate(() => navigator.userAgent);
+    const fullDomain = `${this.blogName}.tistory.com`;
 
-    try {
-      // 내 블로그 목록 페이지에서 블로그 이름 추출
-      await this.page.goto('https://www.tistory.com/member/blog', { waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(2000);
+    // Playwright context.request는 쿠키를 자동으로 포함하므로 Cookie 헤더 불필요
+    // Host 헤더도 URL에서 자동 설정되므로 제거 (수동 설정 시 404 발생)
+    const headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ko-KR",
+        "User-Agent": userAgent,
+        "Content-Type": "application/json;charset=UTF-8",
+        "Origin": `https://${fullDomain}`,
+        "Referer": `https://${fullDomain}/manage/newpost/?type=post&returnURL=%2Fmanage%2Fposts%2F`,
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+    };
 
-      const blogLink = await this.page.$('a[href*=".tistory.com"]');
-      if (blogLink) {
-        const href = await blogLink.getAttribute('href');
-        const match = href.match(/https?:\/\/([^.]+)\.tistory\.com/);
-        if (match) {
-          this.blogName = match[1];
-          logger.info('블로그 이름 확인', { blogName: this.blogName });
-        }
-      }
-    } catch (error) {
-      logger.warn('블로그 이름 자동 감지 실패', { error: error.message });
-    }
-
-    if (!this.blogName) {
-      throw new Error('블로그 이름을 확인할 수 없습니다. .env에 TISTORY_BLOG_NAME을 설정해주세요.');
-    }
-  }
-
-  /**
-   * 블로그 정보 조회
-   */
-  async getBlogInfo() {
-    logger.info('블로그 정보 조회');
-
-    const blogUrl = `https://${this.blogName}.tistory.com`;
-
-    try {
-      await this.page.goto(blogUrl, { waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(2000);
-
-      const title = await this.page.title();
-
-      return [{
-        name: this.blogName,
-        url: blogUrl,
-        title: title,
-        description: '',
-      }];
-    } catch (error) {
-      logger.error('블로그 정보 조회 실패', { error: error.message });
-      throw error;
-    }
-  }
-
-  /**
-   * 카테고리 목록 조회
-   */
-  async getCategories() {
-    logger.info('카테고리 목록 조회');
-
-    try {
-      // 글쓰기 페이지에서 카테고리 정보 가져오기
-      const writeUrl = `https://${this.blogName}.tistory.com/manage/newpost`;
-      await this.page.goto(writeUrl, { waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(3000);
-
-      // 카테고리 select 요소에서 옵션 추출
-      const categories = await this.page.$$eval(
-        'select#category option, select[name="category"] option',
-        (options) => options.map(opt => ({
-          id: opt.value,
-          name: opt.textContent.trim(),
-        })).filter(cat => cat.id && cat.id !== '0')
-      );
-
-      logger.info('카테고리 조회 성공', { count: categories.length });
-      return categories;
-    } catch (error) {
-      logger.error('카테고리 조회 실패', { error: error.message });
-      return [];
-    }
+    return headers;
   }
 
   /**
    * 글 발행 (context.request 사용)
    */
-  async writePost({ title, content, tags = [], categoryId = '0', visibility = '3' }) {
+  async writePost({ title, content, tags = [], categoryId = '0', visibility = '0' }) {
     logger.info('글 발행 시작', { title, tagsCount: tags.length });
 
     try {
-      // 글쓰기 페이지로 이동하여 필요한 토큰 획득
-      const writeUrl = `https://${this.blogName}.tistory.com/manage/newpost`;
-      await this.page.goto(writeUrl, { waitUntil: 'domcontentloaded' });
-      await this.page.waitForTimeout(3000);
+      const headers = await this.createPostHeaders();
 
-      // 마크다운을 HTML로 변환
-      const htmlContent = this.markdownToHtml(content);
-
-      // 발행 상태 매핑: 0=비공개, 3=공개
-      const publishStatus = visibility === '0' ? '0' : '3';
+      // 발행 상태 매핑: 0=비공개, 20=공개
+      const publishStatus = visibility === '0' ? '0' : '20';
 
       // 글쓰기 API 엔드포인트
-      const postApiUrl = `https://${this.blogName}.tistory.com/manage/post/write.json`;
+      const postApiUrl = `https://${this.blogName}.tistory.com/manage/post.json`;
+
+      const payload = {
+        "id": "0",
+        "title": title,
+        "content": content,
+        "slogan": title,
+        "visibility": publishStatus,
+        "category": categoryId,
+        "tag": tags.join(','),
+        "published": 1,
+        "password": '',
+        "uselessMarginForEntry": 1,
+        "daumLike": "401",
+        "cclCommercial": 0,
+        "cclDerive": 0,
+        "type": "post",
+        "attachments": [],
+        "recaptchaValue": "",
+        "draftSequence": null
+      }
 
       // context.request.post로 글 발행
       const response = await this.request.post(postApiUrl, {
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Referer': writeUrl,
+          "content-type": "application/json; charset=utf-8",
+          "accept": "application/json, text/plain, */*",
+          ...headers,
         },
-        form: {
-          title: title,
-          content: htmlContent,
-          category: categoryId,
-          tag: tags.join(','),
-          visibility: publishStatus,
-          published: '',
-          slogan: '',
-          acceptComment: '1',
-          acceptTrackback: '0',
-          password: '',
-        },
+        data: payload,
       });
 
       const responseData = await response.json().catch(() => null);
@@ -252,7 +177,7 @@ class TistoryService {
 
       // 대체 방법: 페이지에서 직접 폼 제출
       logger.info('API 방식 실패, 페이지 폼 제출 방식 시도');
-      return await this.writePostViaPage({ title, content: htmlContent, tags, categoryId, visibility });
+      return await this.writePostViaPage({ title, content, tags, categoryId, visibility });
 
     } catch (error) {
       logger.error('글 발행 실패', { error: error.message });
@@ -356,48 +281,6 @@ class TistoryService {
     if (tagInput) {
       await tagInput.fill(tags.join(', '));
     }
-  }
-
-  /**
-   * 마크다운을 HTML로 변환
-   */
-  markdownToHtml(markdown) {
-    if (!markdown) return '';
-
-    let html = markdown
-      // 코드 블록
-      .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-      // 인라인 코드
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      // 헤더
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-      // 볼드
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      // 이탤릭
-      .replace(/\*(.+?)\*/g, '<em>$1</em>')
-      // 링크
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-      // 이미지
-      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
-      // 줄바꿈
-      .replace(/\n\n/g, '</p><p>')
-      .replace(/\n/g, '<br>');
-
-    // 리스트 처리
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-
-    // 숫자 리스트
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
-
-    // 단락 래핑
-    if (!html.startsWith('<')) {
-      html = '<p>' + html + '</p>';
-    }
-
-    return html;
   }
 
   /**

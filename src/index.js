@@ -52,10 +52,9 @@ async function generateAndPost() {
     const post = chatgpt.parseResponse(response);
 
     console.log('========== 생성된 글 ==========');
+    console.log(`키워드: ${post.keyword}`);
     console.log(`제목: ${post.title}`);
     console.log(`태그: ${post.tags.join(', ')}`);
-    console.log('---');
-    console.log(post.content.substring(0, 300) + (post.content.length > 300 ? '...' : ''));
     console.log('================================\n');
 
     // Tistory 서비스 초기화

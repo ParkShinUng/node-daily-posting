@@ -132,21 +132,6 @@ class ChatGPTService {
   }
 
   /**
-   * 새 채팅 시작
-   */
-  async startNewChat() {
-    try {
-      const newChatButton = await this.page.$('a[href="/"], button[aria-label*="New chat"], nav a[href="/"]');
-      if (newChatButton) {
-        await newChatButton.click();
-        await this.page.waitForTimeout(1000);
-      }
-    } catch {
-      // 새 채팅 버튼이 없어도 진행
-    }
-  }
-
-  /**
    * 응답 완료 대기 및 텍스트 추출
    */
   async waitForResponse(maxWaitTime) {
@@ -201,67 +186,47 @@ class ChatGPTService {
 
   /**
    * 응답에서 블로그 포스트 파싱
-   * 제목, 본문, 태그 추출
+   * JSON 형식의 응답에서 keyword, title, body_html, tags 추출
    */
   parseResponse(response) {
     const result = {
+      keyword: '',
       title: '',
       content: '',
       tags: [],
     };
 
-    const lines = response.split('\n');
-    let contentStart = 0;
+    try {
+      // JSON 블록 추출 (```json ... ``` 또는 순수 JSON)
+      let jsonString = response;
 
-    // 제목 추출 (첫 번째 # 헤더 또는 첫 줄)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (line.startsWith('# ')) {
-        result.title = line.replace(/^#\s+/, '');
-        contentStart = i + 1;
-        break;
-      } else if (line.startsWith('제목:') || line.startsWith('Title:')) {
-        result.title = line.replace(/^(제목|Title):\s*/i, '');
-        contentStart = i + 1;
-        break;
+      const jsonBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (jsonBlockMatch) {
+        jsonString = jsonBlockMatch[1].trim();
+      } else {
+        // 순수 JSON인 경우 첫 번째 { 부터 마지막 } 까지 추출
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          jsonString = jsonMatch[0];
+        }
       }
-    }
 
-    // 제목이 없으면 첫 줄 사용
-    if (!result.title && lines.length > 0) {
-      result.title = lines[0].replace(/^[#*]+\s*/, '').substring(0, 100);
-      contentStart = 1;
-    }
+      const parsed = JSON.parse(jsonString);
 
-    // 태그 추출
-    const tagPatterns = [
-      /태그:\s*(.+)/i,
-      /Tags?:\s*(.+)/i,
-      /#(\w+)/g,
-    ];
+      result.keyword = parsed.keyword || '';
+      result.title = parsed.title || '';
+      result.content = parsed.body_html || '';
+      result.tags = Array.isArray(parsed.tags) ? parsed.tags : [];
 
-    for (const line of lines) {
-      const tagMatch = line.match(/^(태그|Tags?):\s*(.+)/i);
-      if (tagMatch) {
-        result.tags = tagMatch[2]
-          .split(/[,\s]+/)
-          .map(t => t.replace(/^#/, '').trim())
-          .filter(t => t.length > 0);
-        break;
+      // 기본 태그
+      if (result.tags.length === 0) {
+        result.tags = ['블로그', '일상'];
       }
-    }
 
-    // 본문 추출 (태그 라인 제외)
-    const contentLines = lines.slice(contentStart).filter(line => {
-      const trimmed = line.trim();
-      return !trimmed.match(/^(태그|Tags?):/i);
-    });
-
-    result.content = contentLines.join('\n').trim();
-
-    // 기본 태그
-    if (result.tags.length === 0) {
-      result.tags = ['블로그', '일상'];
+      logger.info('JSON 파싱 성공', { keyword: result.keyword, title: result.title });
+    } catch (error) {
+      logger.error('JSON 파싱 실패', { error: error.message });
+      throw new Error(`응답 JSON 파싱 실패: ${error.message}`);
     }
 
     return result;
