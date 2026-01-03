@@ -45,7 +45,7 @@ async function generateAndPost() {
     await chatgpt.initialize();
 
     // 프롬프트 전송 및 응답 받기
-    console.log('[2/4] 글 생성 중... (최대 3분 소요)\n');
+    console.log('[2/4] 글 생성 중... (최대 5분 소요)\n');
     const response = await chatgpt.sendPrompt(prompt);
 
     // 응답 파싱
@@ -64,7 +64,7 @@ async function generateAndPost() {
 
     // 글 발행
     console.log('[4/4] 글 발행 중...');
-    post.visibility = '3';
+    post.visibility = '20';
     post.categoryId = '0';
 
     const result = await tistory.writePost(post);

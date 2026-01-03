@@ -101,7 +101,7 @@ class ChatGPTService {
    * @param {string} prompt - 전송할 프롬프트
    * @param {number} maxWaitTime - 최대 대기 시간 (ms)
    */
-  async sendPrompt(prompt, maxWaitTime = 180000) {
+  async sendPrompt(prompt, maxWaitTime = 300000) {
     logger.info('프롬프트 전송 시작', { promptLength: prompt.length });
 
     try {
@@ -141,7 +141,7 @@ class ChatGPTService {
     const stableThreshold = 3; // 응답이 3번 연속 동일하면 완료로 간주
 
     while (Date.now() - startTime < maxWaitTime) {
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(1000);
 
       // 응답 메시지 요소 찾기
       const responseElements = await this.page.$$('div[data-message-author-role="assistant"]');
@@ -197,14 +197,12 @@ class ChatGPTService {
     };
 
     try {
-      // JSON 블록 추출 (```json ... ``` 또는 순수 JSON)
       let jsonString = response;
 
       const jsonBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonBlockMatch) {
         jsonString = jsonBlockMatch[1].trim();
       } else {
-        // 순수 JSON인 경우 첫 번째 { 부터 마지막 } 까지 추출
         const jsonMatch = response.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           jsonString = jsonMatch[0];
@@ -215,13 +213,8 @@ class ChatGPTService {
 
       result.keyword = parsed.keyword || '';
       result.title = parsed.title || '';
-      result.content = parsed.body_html || '';
+      result.content = parsed.content || '';
       result.tags = Array.isArray(parsed.tags) ? parsed.tags : [];
-
-      // 기본 태그
-      if (result.tags.length === 0) {
-        result.tags = ['블로그', '일상'];
-      }
 
       logger.info('JSON 파싱 성공', { keyword: result.keyword, title: result.title });
     } catch (error) {

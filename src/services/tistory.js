@@ -24,19 +24,8 @@ class TistoryService {
     this.page = await this.browserManager.newPage();
     this.request = this.browserManager.getRequestContext();
 
-    // Tistory 접속
-    await this.page.goto(TISTORY_URL, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForTimeout(2000);
-
-    // 로그인 상태 확인
-    const isLoggedIn = await this.checkLoginStatus();
-
-    if (!isLoggedIn) {
-      logger.info('로그인 필요 - 로그인 프로세스 시작');
-      await this.login();
-    } else {
-      logger.info('기존 세션으로 로그인 상태 유지');
-    }
+    logger.info('로그인 진행 프로세스 시작');
+    await this.login();
 
     return this;
   }
@@ -75,12 +64,8 @@ class TistoryService {
 
         await this.page.waitForLoadState("domcontentloaded");
         await this.page.waitForTimeout(3000);
-        const descLogin = await this.page.locator('p.desc_login', { hasText: '카카오톡으로 로그인 확인 메세지가 전송되었습니다.' });
-        if (await descLogin.count() > 0) {
-          emit({ event: "log", message: "Request Login Auth" });
-        }
 
-        while (!this.page.url().includes("www.tistory.com/")) {
+        while (!this.page.url().startsWith(TISTORY_URL)) {
           await this.page.waitForTimeout(100);
         }
 
@@ -97,7 +82,7 @@ class TistoryService {
 
   async createPostHeaders() {
     const userAgent = await this.page.evaluate(() => navigator.userAgent);
-    const fullDomain = `${this.blogName}.tistory.com`;
+    const fullDomain = `https://${this.blogName}.tistory.com`;
 
     // Playwright context.request는 쿠키를 자동으로 포함하므로 Cookie 헤더 불필요
     // Host 헤더도 URL에서 자동 설정되므로 제거 (수동 설정 시 404 발생)
@@ -106,8 +91,8 @@ class TistoryService {
         "Accept-Language": "ko-KR",
         "User-Agent": userAgent,
         "Content-Type": "application/json;charset=UTF-8",
-        "Origin": `https://${fullDomain}`,
-        "Referer": `https://${fullDomain}/manage/newpost/?type=post&returnURL=%2Fmanage%2Fposts%2F`,
+        "Origin": fullDomain,
+        "Referer": `${fullDomain}/manage/newpost/?type=post&returnURL=%2Fmanage%2Fposts%2F`,
         "Sec-Fetch-Site": "same-origin",
         "Sec-Fetch-Mode": "cors",
         "Sec-Fetch-Dest": "empty",
