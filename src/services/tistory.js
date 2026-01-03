@@ -174,112 +174,12 @@ class TistoryService {
           url: postUrl,
         };
       }
-
-      // 대체 방법: 페이지에서 직접 폼 제출
-      logger.info('API 방식 실패, 페이지 폼 제출 방식 시도');
-      return await this.writePostViaPage({ title, content, tags, categoryId, visibility });
-
+      else {
+        throw new Error('API 방식 실패');
+      }
     } catch (error) {
       logger.error('글 발행 실패', { error: error.message });
       throw new Error(`글 발행 실패: ${error.message}`);
-    }
-  }
-
-  /**
-   * 페이지에서 직접 폼 제출하여 글 발행
-   */
-  async writePostViaPage({ title, content, tags, categoryId, visibility }) {
-    const writeUrl = `https://${this.blogName}.tistory.com/manage/newpost`;
-    await this.page.goto(writeUrl, { waitUntil: 'domcontentloaded' });
-    await this.page.waitForTimeout(3000);
-
-    // 제목 입력
-    const titleInput = await this.page.waitForSelector('#post-title-inp, input[name="title"], .title-input');
-    await titleInput.fill(title);
-
-    // 카테고리 선택
-    if (categoryId && categoryId !== '0') {
-      const categorySelect = await this.page.$('select#category, select[name="category"]');
-      if (categorySelect) {
-        await categorySelect.selectOption(categoryId);
-      }
-    }
-
-    // 본문 입력 (에디터 타입에 따라 다름)
-    await this.fillContent(content);
-
-    // 태그 입력
-    if (tags.length > 0) {
-      await this.fillTags(tags);
-    }
-
-    // 공개 설정
-    if (visibility === '0') {
-      const privateRadio = await this.page.$('input[name="visibility"][value="0"], #visibility-private');
-      if (privateRadio) await privateRadio.click();
-    }
-
-    // 발행 버튼 클릭
-    const publishButton = await this.page.waitForSelector('button.btn_publish, button#publish-btn, button:has-text("발행")');
-    await publishButton.click();
-
-    await this.page.waitForTimeout(5000);
-
-    // 발행 후 URL에서 포스트 ID 추출
-    const currentUrl = this.page.url();
-    const postIdMatch = currentUrl.match(/\/(\d+)$/);
-    const postId = postIdMatch ? postIdMatch[1] : 'unknown';
-
-    return {
-      postId,
-      url: currentUrl.includes('/manage') ? `https://${this.blogName}.tistory.com/${postId}` : currentUrl,
-    };
-  }
-
-  /**
-   * 본문 내용 입력
-   */
-  async fillContent(content) {
-    // 에디터 iframe 확인
-    const editorFrame = await this.page.$('iframe#editor-iframe, iframe.editor');
-
-    if (editorFrame) {
-      const frame = await editorFrame.contentFrame();
-      if (frame) {
-        const body = await frame.waitForSelector('body');
-        await body.click();
-        await frame.evaluate((html) => {
-          document.body.innerHTML = html;
-        }, content);
-        return;
-      }
-    }
-
-    // contenteditable 에디터
-    const editableArea = await this.page.$('[contenteditable="true"], .editor-content, #content');
-    if (editableArea) {
-      await editableArea.click();
-      await this.page.evaluate((html) => {
-        const editor = document.querySelector('[contenteditable="true"], .editor-content, #content');
-        if (editor) editor.innerHTML = html;
-      }, content);
-      return;
-    }
-
-    // textarea 에디터
-    const textarea = await this.page.$('textarea#content, textarea.content');
-    if (textarea) {
-      await textarea.fill(content);
-    }
-  }
-
-  /**
-   * 태그 입력
-   */
-  async fillTags(tags) {
-    const tagInput = await this.page.$('input#tag-inp, input[name="tag"], .tag-input');
-    if (tagInput) {
-      await tagInput.fill(tags.join(', '));
     }
   }
 
