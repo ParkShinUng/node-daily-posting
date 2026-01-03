@@ -1,0 +1,89 @@
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import ChatGPTService from './services/chatgpt.js';
+import TistoryService from './services/tistory.js';
+import config from './config.js';
+import logger from './utils/logger.js';
+
+/**
+ * 프롬프트 템플릿 로드
+ */
+function loadPrompt() {
+  const promptsPath = join(config.paths.config, 'prompts.json');
+
+  if (!existsSync(promptsPath)) {
+    throw new Error('config/prompts.json 파일이 없습니다.');
+  }
+
+  const data = readFileSync(promptsPath, 'utf-8');
+  const prompts = JSON.parse(data).prompts || [];
+
+  if (prompts.length === 0) {
+    throw new Error('설정된 프롬프트가 없습니다.');
+  }
+
+  return prompts[0].prompt;
+}
+
+/**
+ * 글 생성 및 발행
+ */
+async function generateAndPost() {
+  let chatgpt = null;
+  let tistory = null;
+
+  try {
+    const prompt = loadPrompt();
+
+    console.log('\n========================================');
+    console.log('   ChatGPT + Tistory 자동 포스팅');
+    console.log('========================================\n');
+
+    // ChatGPT 서비스 초기화
+    console.log('[1/4] ChatGPT 초기화 중...');
+    chatgpt = new ChatGPTService();
+    await chatgpt.initialize();
+
+    // 프롬프트 전송 및 응답 받기
+    console.log('[2/4] 글 생성 중... (최대 3분 소요)\n');
+    const response = await chatgpt.sendPrompt(prompt);
+
+    // 응답 파싱
+    const post = chatgpt.parseResponse(response);
+
+    console.log('========== 생성된 글 ==========');
+    console.log(`제목: ${post.title}`);
+    console.log(`태그: ${post.tags.join(', ')}`);
+    console.log('---');
+    console.log(post.content.substring(0, 300) + (post.content.length > 300 ? '...' : ''));
+    console.log('================================\n');
+
+    // Tistory 서비스 초기화
+    console.log('[3/4] Tistory 초기화 중...');
+    tistory = new TistoryService();
+    await tistory.initialize();
+
+    // 글 발행
+    console.log('[4/4] 글 발행 중...');
+    post.visibility = '3';
+    post.categoryId = '0';
+
+    const result = await tistory.writePost(post);
+
+    console.log('\n✓ 발행 완료!');
+    console.log(`URL: ${result.url}\n`);
+
+  } catch (error) {
+    logger.error('작업 실패', { error: error.message });
+    console.error(`\n오류: ${error.message}\n`);
+    process.exit(1);
+  } finally {
+    if (chatgpt) await chatgpt.close();
+    if (tistory) await tistory.close();
+  }
+}
+
+// 바로 실행
+generateAndPost().then(() => {
+  process.exit(0);
+});

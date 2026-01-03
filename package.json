@@ -1,0 +1,25 @@
+{
+  "name": "node-daily-posting",
+  "version": "1.0.0",
+  "description": "ChatGPT + Tistory 자동 블로그 포스팅 시스템",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "chatgpt",
+    "tistory",
+    "automation",
+    "playwright",
+    "blog"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "playwright": "^1.40.0",
+    "winston": "^3.11.0"
+  }
+}
