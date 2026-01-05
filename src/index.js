@@ -77,8 +77,12 @@ async function generateAndPost() {
     console.error(`\n오류: ${error.message}\n`);
     process.exit(1);
   } finally {
-    if (chatgpt) await chatgpt.close();
-    if (tistory) await tistory.close();
+    if (chatgpt) {
+      try { await chatgpt.close(); } catch (e) { logger.error('ChatGPT 종료 실패', { error: e.message }); }
+    }
+    if (tistory) {
+      try { await tistory.close(); } catch (e) { logger.error('Tistory 종료 실패', { error: e.message }); }
+    }
   }
 }
 
