@@ -70,8 +70,13 @@ class ChatGPTService {
       });
       await googleLoginButton.click();
       
-      // URL 변경 대기
+      // URL 변경 대기 (타임아웃 5분)
+      const googleTimeout = 300000;
+      const googleStartTime = Date.now();
       while (!this.page.url().includes('accounts.google.com')) {
+        if (Date.now() - googleStartTime > googleTimeout) {
+          throw new Error('Google 로그인 페이지 로딩 시간 초과');
+        }
         await this.page.waitForTimeout(100);
       }
 
@@ -81,8 +86,13 @@ class ChatGPTService {
       });
       await emailInput.fill(config.chatgpt.email);
 
-      // 로그인 완료 대기
+      // 로그인 완료 대기 (타임아웃 5분)
+      const loginTimeout = 300000;
+      const loginStartTime = Date.now();
       while (!this.page.url().includes('https://chatgpt.com/')) {
+        if (Date.now() - loginStartTime > loginTimeout) {
+          throw new Error('ChatGPT 로그인 완료 대기 시간 초과');
+        }
         await this.page.waitForTimeout(100);
       }
 

@@ -64,6 +64,9 @@ export function validateConfig(service) {
     if (!config.tistory.email || !config.tistory.password) {
       throw new Error('Tistory 로그인 정보가 설정되지 않았습니다.');
     }
+    if (!config.tistory.blogName) {
+      throw new Error('Tistory 블로그 이름이 설정되지 않았습니다.');
+    }
   }
 }
 

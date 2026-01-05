@@ -3,7 +3,7 @@ import config from '../config.js';
 import logger from '../utils/logger.js';
 
 const TISTORY_URL = 'https://www.tistory.com';
-const TISOTRY_LOGIN_URL = 'https://www.tistory.com/auth/login';
+const TISTORY_LOGIN_URL = 'https://www.tistory.com/auth/login';
 const SESSION_NAME = 'tistory';
 
 class TistoryService {
@@ -52,7 +52,7 @@ class TistoryService {
     }
 
     try {
-      await this.page.goto(TISOTRY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
+      await this.page.goto(TISTORY_LOGIN_URL, { waitUntil: 'domcontentloaded' });
 
       if ((await this.page.locator("a.btn_login").count()) > 0) {
         await this.page.click("a.btn_login");
@@ -65,7 +65,13 @@ class TistoryService {
         await this.page.waitForLoadState("domcontentloaded");
         await this.page.waitForTimeout(3000);
 
+        // 로그인 완료 대기 (타임아웃 5분)
+        const timeout = 300000;
+        const startTime = Date.now();
         while (!this.page.url().startsWith(TISTORY_URL)) {
+          if (Date.now() - startTime > timeout) {
+            throw new Error('Tistory 로그인 완료 대기 시간 초과');
+          }
           await this.page.waitForTimeout(100);
         }
 
@@ -138,11 +144,7 @@ class TistoryService {
 
       // context.request.post로 글 발행
       const response = await this.request.post(postApiUrl, {
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          "accept": "application/json, text/plain, */*",
-          ...headers,
-        },
+        headers,
         data: payload,
       });
 
@@ -150,6 +152,9 @@ class TistoryService {
 
       if (response.ok() && responseData) {
         const postId = responseData.postId || responseData.entryId;
+        if (!postId) {
+          throw new Error('API 응답에서 postId를 찾을 수 없습니다.');
+        }
         const postUrl = `https://${this.blogName}.tistory.com/${postId}`;
 
         logger.info('글 발행 성공', { postId, url: postUrl });
