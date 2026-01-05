@@ -31,19 +31,6 @@ class TistoryService {
   }
 
   /**
-   * 로그인 상태 확인
-   */
-  async checkLoginStatus() {
-    try {
-      // 로그인된 상태면 사용자 메뉴가 있음
-      const userMenu = await this.page.$('.my_tistory, .btn_logout, [class*="user"], .menu_profile');
-      return userMenu !== null;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Tistory 로그인 (카카오 계정)
    */
   async login() {
