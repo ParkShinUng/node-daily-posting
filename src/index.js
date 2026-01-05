@@ -45,7 +45,7 @@ async function generateAndPost() {
     await chatgpt.initialize();
 
     // 프롬프트 전송 및 응답 받기
-    logger.info('[2/4] 글 생성 중... (최대 5분 소요)');
+    console.log('[2/4] 글 생성 중... (최대 10분 소요)\n');
     const response = await chatgpt.sendPrompt(prompt);
 
     // 응답 파싱

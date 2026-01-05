@@ -1,0 +1,57 @@
+name: Daily Posting
+
+on:
+  schedule:
+    # UTC 12:00 = KST 21:00 (오후 9시)
+    - cron: '0 12 * * *'
+  # 수동 실행 가능
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Restore auth session
+        run: |
+          mkdir -p .auth
+          if [ -n "${{ secrets.CHATGPT_SESSION }}" ]; then
+            echo '${{ secrets.CHATGPT_SESSION }}' > .auth/chatgpt-state.json
+          fi
+          if [ -n "${{ secrets.TISTORY_SESSION }}" ]; then
+            echo '${{ secrets.TISTORY_SESSION }}' > .auth/tistory-state.json
+          fi
+
+      - name: Run daily posting
+        run: node src/index.js
+        env:
+          HEADLESS: 'true'
+          CHATGPT_EMAIL: ${{ secrets.CHATGPT_EMAIL }}
+          CHATGPT_PASSWORD: ${{ secrets.CHATGPT_PASSWORD }}
+          TISTORY_ID: ${{ secrets.TISTORY_ID }}
+          TISTORY_PASSWORD: ${{ secrets.TISTORY_PASSWORD }}
+          TISTORY_BLOG_NAME: ${{ secrets.TISTORY_BLOG_NAME }}
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs
+          path: logs/
+          retention-days: 7

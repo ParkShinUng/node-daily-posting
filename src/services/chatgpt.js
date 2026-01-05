@@ -111,7 +111,7 @@ class ChatGPTService {
    * @param {string} prompt - 전송할 프롬프트
    * @param {number} maxWaitTime - 최대 대기 시간 (ms)
    */
-  async sendPrompt(prompt, maxWaitTime = 300000) {
+  async sendPrompt(prompt, maxWaitTime = 600000) {
     logger.info('프롬프트 전송 시작', { promptLength: prompt.length });
 
     try {
