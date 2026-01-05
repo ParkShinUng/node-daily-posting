@@ -35,46 +35,45 @@ async function generateAndPost() {
   try {
     const prompt = loadPrompt();
 
-    console.log('\n========================================');
-    console.log('   ChatGPT + Tistory 자동 포스팅');
-    console.log('========================================\n');
+    logger.info('========================================');
+    logger.info('   ChatGPT + Tistory 자동 포스팅');
+    logger.info('========================================');
 
     // ChatGPT 서비스 초기화
-    console.log('[1/4] ChatGPT 초기화 중...');
+    logger.info('[1/4] ChatGPT 초기화 중...');
     chatgpt = new ChatGPTService();
     await chatgpt.initialize();
 
     // 프롬프트 전송 및 응답 받기
-    console.log('[2/4] 글 생성 중... (최대 5분 소요)\n');
+    logger.info('[2/4] 글 생성 중... (최대 5분 소요)');
     const response = await chatgpt.sendPrompt(prompt);
 
     // 응답 파싱
     const post = chatgpt.parseResponse(response);
 
-    console.log('========== 생성된 글 ==========');
-    console.log(`키워드: ${post.keyword}`);
-    console.log(`제목: ${post.title}`);
-    console.log(`태그: ${post.tags.join(', ')}`);
-    console.log('================================\n');
+    logger.info('========== 생성된 글 ==========');
+    logger.info(`키워드: ${post.keyword}`);
+    logger.info(`제목: ${post.title}`);
+    logger.info(`태그: ${post.tags.join(', ')}`);
+    logger.info('================================');
 
     // Tistory 서비스 초기화
-    console.log('[3/4] Tistory 초기화 중...');
+    logger.info('[3/4] Tistory 초기화 중...');
     tistory = new TistoryService();
     await tistory.initialize();
 
     // 글 발행
-    console.log('[4/4] 글 발행 중...');
+    logger.info('[4/4] 글 발행 중...');
     post.visibility = '20';
     post.categoryId = '0';
 
     const result = await tistory.writePost(post);
 
-    console.log('\n✓ 발행 완료!');
-    console.log(`URL: ${result.url}\n`);
+    logger.info('발행 완료!');
+    logger.info(`URL: ${result.url}`);
 
   } catch (error) {
     logger.error('작업 실패', { error: error.message });
-    console.error(`\n오류: ${error.message}\n`);
     process.exit(1);
   } finally {
     if (chatgpt) {
