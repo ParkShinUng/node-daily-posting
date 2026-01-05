@@ -135,21 +135,8 @@ class TistoryService {
         data: payload,
       });
 
-      const responseData = await response.json().catch(() => null);
-
-      if (response.ok() && responseData) {
-        const postId = responseData.postId || responseData.entryId;
-        if (!postId) {
-          throw new Error('API 응답에서 postId를 찾을 수 없습니다.');
-        }
-        const postUrl = `https://${this.blogName}.tistory.com/${postId}`;
-
-        logger.info('글 발행 성공', { postId, url: postUrl });
-
-        return {
-          postId: postId,
-          url: postUrl,
-        };
+      if (response.ok()) {
+        logger.info('글 발행 성공');
       }
       else {
         throw new Error('API 방식 실패');

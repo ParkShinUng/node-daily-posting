@@ -67,10 +67,9 @@ async function generateAndPost() {
     post.visibility = '20';
     post.categoryId = '0';
 
-    const result = await tistory.writePost(post);
+    await tistory.writePost(post);
 
     logger.info('발행 완료!');
-    logger.info(`URL: ${result.url}`);
 
   } catch (error) {
     logger.error('작업 실패', { error: error.message });
