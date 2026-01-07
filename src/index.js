@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import ChatGPTService from './services/chatgpt.js';
 import TistoryService from './services/tistory.js';
+import GoogleApiService from './services/googleApi.js';
 import config from './config.js';
 import logger from './utils/logger.js';
 
@@ -67,7 +68,10 @@ async function generateAndPost() {
     post.visibility = '20';
     post.categoryId = '0';
 
-    await tistory.writePost(post);
+    const postUrl = await tistory.writePost(post);
+
+    const googleApi = new GoogleApiService();
+    await googleApi.registerIndex(postUrl);
 
     logger.info('발행 완료!');
 

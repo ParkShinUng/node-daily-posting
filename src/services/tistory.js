@@ -135,8 +135,13 @@ class TistoryService {
         data: payload,
       });
 
+
       if (response.ok()) {
-        logger.info('글 발행 성공');
+        const responseData = await response.json();
+        const postUrl = responseData.entryUrl;
+
+        logger.info('글 발행 성공', { postUrl });
+        return postUrl;
       }
       else {
         throw new Error('API 방식 실패');

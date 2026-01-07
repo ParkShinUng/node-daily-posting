@@ -38,6 +38,13 @@ export const config = {
     blogName: getEnvVar('TISTORY_BLOG_NAME', false),
   },
 
+  // Google API
+  google: {
+    keyFilePath: getEnvVar('GOOGLE_API_KEY_FILE', false)
+      ? join(rootDir, getEnvVar('GOOGLE_API_KEY_FILE', false))
+      : '',
+  },
+
   // 브라우저
   browser: {
     headless: process.env.HEADLESS === 'true',
