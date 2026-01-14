@@ -120,7 +120,7 @@ class TistoryService {
         "published": 1,
         "password": '',
         "uselessMarginForEntry": 1,
-        "daumLike": "401",
+        "daumLike": "112",
         "cclCommercial": 0,
         "cclDerive": 0,
         "type": "post",
