@@ -3,33 +3,12 @@ import { join } from 'path';
 import OliveyoungService from './services/oliveyoung.js';
 import ChatGPTService from './services/chatgpt.js';
 import TistoryService from './services/tistory.js';
-import GoogleApiService from './services/googleApi.js';
+import { orchestrate } from './orchestrator.js';
 import config from './config.js';
 import logger from './utils/logger.js';
-import { delay } from './utils/helpers.js';
 
-// 설정 상수
-const CATEGORY_DELAY = 3000; // 카테고리 간 대기 시간 (ms)
-
-/**
- * 프롬프트 템플릿 로드
- */
-function loadPromptTemplate() {
-  const promptsPath = join(config.paths.config, 'prompts.json');
-
-  if (!existsSync(promptsPath)) {
-    throw new Error('config/prompts.json 파일이 없습니다.');
-  }
-
-  const data = readFileSync(promptsPath, 'utf-8');
-  const prompts = JSON.parse(data).lank_item_prompts || [];
-
-  if (prompts.length === 0) {
-    throw new Error('설정된 프롬프트가 없습니다.');
-  }
-
-  return prompts[0].prompt;
-}
+// 활성 카테고리 설정 (빈 배열이면 전체 카테고리 실행)
+const ACTIVE_CATEGORIES = ['skincare', 'makeup'];
 
 /**
  * 랭킹 URL 카테고리 로드
@@ -42,16 +21,15 @@ function loadRankCategories() {
   }
 
   const data = readFileSync(rankUrlPath, 'utf-8');
-  return JSON.parse(data);
-}
+  const all = JSON.parse(data);
 
-/**
- * 프롬프트에 변수 대입
- */
-function buildPrompt(template, brandName, productName) {
-  return template
-    .replace(/{브랜드명}/g, brandName)
-    .replace(/{상품명}/g, productName);
+  if (ACTIVE_CATEGORIES.length === 0) return all;
+
+  const filtered = {};
+  for (const key of ACTIVE_CATEGORIES) {
+    if (all[key]) filtered[key] = all[key];
+  }
+  return filtered;
 }
 
 /**
@@ -74,7 +52,8 @@ function printSummary(results) {
   if (successResults.length > 0) {
     logger.info('[ 성공 목록 ]');
     successResults.forEach((r, i) => {
-      logger.info(`  ${i + 1}. ${r.category}: ${r.postUrl}`);
+      logger.info(`  ${i + 1}. ${r.category}: ${r.title}`);
+      logger.info(`     URL: ${r.postUrl}`);
     });
   }
 
@@ -96,18 +75,18 @@ async function main() {
   let oliveyoung = null;
   let chatgpt = null;
   let tistory = null;
-  const results = [];
+  const allResults = [];
 
   const startTime = Date.now();
 
   try {
     logger.info('========================================');
-    logger.info('   올리브영 + ChatGPT + Tistory 자동 포스팅');
+    logger.info('   올리브영 멀티 에이전트 자동 포스팅');
     logger.info('========================================');
     logger.info('');
 
     // ========================================
-    // STEP 1: 데이터 수집 (병렬)
+    // STEP 1: 올리브영 상품 정보 수집
     // ========================================
     logger.info('[STEP 1/4] 올리브영 상품 정보 수집');
     logger.info('----------------------------------------');
@@ -123,15 +102,19 @@ async function main() {
       throw new Error('수집된 상품 정보가 없습니다.');
     }
 
-    // 수집 실패한 카테고리 결과에 추가
+    // 수집 실패 카테고리 기록
     collectionFailures.forEach(f => {
-      results.push({
+      allResults.push({
         category: f.category,
         success: false,
         error: `상품 정보 수집 실패: ${f.error}`
       });
     });
 
+    logger.info(`수집 완료: ${products.length}개 상품`);
+    products.forEach(p => {
+      logger.info(`  - ${p.category}: ${p.brand} ${p.productName}`);
+    });
     logger.info('');
 
     // ========================================
@@ -140,11 +123,7 @@ async function main() {
     logger.info('[STEP 2/4] 서비스 초기화');
     logger.info('----------------------------------------');
 
-    // 프롬프트 템플릿 로드
-    const promptTemplate = loadPromptTemplate();
-    logger.info('프롬프트 템플릿 로드 완료');
-
-    // ChatGPT 초기화
+    // ChatGPT 초기화 (로그인)
     chatgpt = new ChatGPTService();
     await chatgpt.initialize();
 
@@ -152,91 +131,40 @@ async function main() {
     tistory = new TistoryService();
     await tistory.initialize();
 
-    // Google API 초기화
-    const googleApi = new GoogleApiService();
-
     logger.info('모든 서비스 초기화 완료');
     logger.info('');
 
     // ========================================
-    // STEP 3: 글 생성 및 발행
+    // STEP 3: 카테고리별 병렬 오케스트레이터
     // ========================================
-    logger.info('[STEP 3/4] 글 생성 및 발행');
+    logger.info('[STEP 3/4] 카테고리별 병렬 포스팅 시작');
     logger.info('----------------------------------------');
-
-    const indexPromises = []; // 색인 요청 Promise 수집
-
-    for (let i = 0; i < products.length; i++) {
-      const product = products[i];
-      const progress = `[${i + 1}/${products.length}]`;
-
-      logger.info('');
-      logger.info(`${progress} === ${product.category} ===`);
-      logger.info(`${progress} 브랜드: ${product.brand}`);
-      logger.info(`${progress} 상품: ${product.productName}`);
-
-      try {
-        // 새 대화 시작 (첫 번째 제외)
-        if (i > 0) {
-          await chatgpt.startNewChat();
-        }
-
-        // 프롬프트 빌드 및 전송
-        const prompt = buildPrompt(promptTemplate, product.brand, product.productName);
-        logger.info(`${progress} ChatGPT 글 생성 중...`);
-
-        const response = await chatgpt.sendPrompt(prompt);
-        const post = chatgpt.parseResponse(response);
-
-        logger.info(`${progress} 제목: ${post.title}`);
-
-        // Tistory 발행 + Google 색인 병렬 처리
-        logger.info(`${progress} Tistory 발행 + Google 색인 요청 (병렬)...`);
-        post.visibility = '20';
-        post.categoryId = '1292960';
-
-        const postUrl = await tistory.writePost(post);
-
-        // 색인 요청은 백그라운드로 진행 (다음 카테고리와 병렬)
-        const indexPromise = googleApi.registerIndex(postUrl)
-          .then(() => logger.info(`${progress} Google 색인 완료`))
-          .catch(err => logger.warn(`${progress} Google 색인 실패`, { error: err.message }));
-
-        indexPromises.push(indexPromise);
-
-        results.push({
-          category: product.category,
-          success: true,
-          postUrl,
-          title: post.title
-        });
-
-        logger.info(`${progress} 발행 완료! ${postUrl}`);
-
-      } catch (error) {
-        logger.error(`${progress} 실패: ${error.message}`);
-        results.push({
-          category: product.category,
-          success: false,
-          error: error.message
-        });
-      }
-
-      // 다음 카테고리 전 대기 (마지막 제외)
-      if (i < products.length - 1) {
-        logger.info(`${progress} 다음 작업 전 ${CATEGORY_DELAY / 1000}초 대기...`);
-        await delay(CATEGORY_DELAY);
-      }
-    }
-
+    logger.info(`${products.length}개 카테고리를 병렬로 처리합니다.`);
+    logger.info('  각 카테고리: ChatGPT 탭 2개 (글 작성 ∥ 이미지+썸네일 병렬)');
     logger.info('');
 
-    // 모든 색인 요청 완료 대기
-    if (indexPromises.length > 0) {
-      logger.info('Google 색인 요청 완료 대기 중...');
-      await Promise.allSettled(indexPromises);
-      logger.info('모든 색인 요청 처리 완료');
-    }
+    const orchestratorResults = await Promise.allSettled(
+      products.map(product =>
+        orchestrate({
+          product,
+          chatgptService: chatgpt,
+          tistoryService: tistory,
+        })
+      )
+    );
+
+    // 결과 수집
+    orchestratorResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        allResults.push(result.value);
+      } else {
+        allResults.push({
+          category: products[index].category,
+          success: false,
+          error: result.reason?.message || '알 수 없는 오류',
+        });
+      }
+    });
 
     logger.info('');
 
@@ -248,11 +176,11 @@ async function main() {
     const elapsed = Math.round((Date.now() - startTime) / 1000);
     logger.info(`총 소요 시간: ${Math.floor(elapsed / 60)}분 ${elapsed % 60}초`);
 
-    printSummary(results);
+    printSummary(allResults);
 
   } catch (error) {
     logger.error('치명적 오류 발생', { error: error.message });
-    printSummary(results);
+    printSummary(allResults);
     process.exit(1);
   } finally {
     // 서비스 종료

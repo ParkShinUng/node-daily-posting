@@ -77,8 +77,6 @@ class TistoryService {
     const userAgent = await this.page.evaluate(() => navigator.userAgent);
     const fullDomain = `https://${this.blogName}.tistory.com`;
 
-    // Playwright context.request는 쿠키를 자동으로 포함하므로 Cookie 헤더 불필요
-    // Host 헤더도 URL에서 자동 설정되므로 제거 (수동 설정 시 404 발생)
     const headers = {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "ko-KR",
@@ -95,10 +93,95 @@ class TistoryService {
   }
 
   /**
-   * 글 발행 (context.request 사용)
+   * 이미지 업로드 → Tistory CDN URL 반환
+   * @param {Buffer} imageBuffer - 이미지 바이너리 데이터
+   * @param {string} filename - 파일명
+   * @returns {string} Tistory CDN 이미지 URL
    */
-  async writePost({ title, content, tags = [], categoryId = '0', visibility = '0' }) {
-    logger.info('글 발행 시작', { title, tagsCount: tags.length });
+  async uploadImage(imageBuffer, filename = 'image.png') {
+    logger.info('이미지 업로드 시작', { filename, size: imageBuffer.length });
+
+    try {
+      const uploadUrl = `https://${this.blogName}.tistory.com/manage/post/attach.json`;
+
+      // 방법 1: Playwright APIRequestContext (Filedata 필드명)
+      const fieldNames = ['Filedata', 'file', 'upload'];
+      let lastError = null;
+
+      for (const fieldName of fieldNames) {
+        try {
+          const response = await this.request.post(uploadUrl, {
+            multipart: {
+              [fieldName]: {
+                name: filename,
+                mimeType: 'image/png',
+                buffer: imageBuffer,
+              },
+            },
+          });
+
+          if (response.ok()) {
+            const data = await response.json();
+            const imageUrl = data.url || data.replacer || (data.attachments && data.attachments[0]?.url);
+
+            if (imageUrl) {
+              logger.info('이미지 업로드 성공', { imageUrl, fieldName });
+              return imageUrl;
+            }
+            logger.warn('업로드 응답에서 URL 추출 실패', { data: JSON.stringify(data).substring(0, 500), fieldName });
+          } else {
+            logger.warn(`업로드 실패 (필드: ${fieldName})`, { status: response.status() });
+          }
+        } catch (err) {
+          lastError = err;
+          logger.warn(`업로드 시도 실패 (필드: ${fieldName})`, { error: err.message });
+        }
+      }
+
+      // 방법 2: 페이지 컨텍스트에서 fetch 사용 (인증 쿠키 포함)
+      logger.info('페이지 컨텍스트로 업로드 재시도');
+      try {
+        // Tistory 관리 페이지로 이동 (인증 컨텍스트 확보)
+        const currentUrl = this.page.url();
+        if (!currentUrl.includes('tistory.com/manage')) {
+          await this.page.goto(`https://${this.blogName}.tistory.com/manage`, {
+            waitUntil: 'domcontentloaded',
+            timeout: 10000,
+          });
+        }
+
+        const data = await this.page.evaluate(async ({ url, bufferArray, name }) => {
+          const formData = new FormData();
+          const blob = new Blob([new Uint8Array(bufferArray)], { type: 'image/png' });
+          formData.append('Filedata', blob, name);
+
+          const res = await fetch(url, { method: 'POST', body: formData });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.json();
+        }, { url: uploadUrl, bufferArray: [...imageBuffer], name: filename });
+
+        const imageUrl = data.url || data.replacer || (data.attachments && data.attachments[0]?.url);
+        if (imageUrl) {
+          logger.info('이미지 업로드 성공 (페이지 컨텍스트)', { imageUrl });
+          return imageUrl;
+        }
+      } catch (err) {
+        lastError = err;
+        logger.warn('페이지 컨텍스트 업로드 실패', { error: err.message });
+      }
+
+      throw lastError || new Error('모든 업로드 방법 실패');
+    } catch (error) {
+      logger.error('이미지 업로드 실패', { error: error.message });
+      throw new Error(`이미지 업로드 실패: ${error.message}`);
+    }
+  }
+
+  /**
+   * 글 발행 (이미지 썸네일 지원)
+   */
+  async writePost({ title, content, tags = [], categoryId = '0', visibility = '0', thumbnailUrl = '' }) {
+    logger.info('글 발행 시작', { title, tagsCount: tags.length, hasThumbnail: !!thumbnailUrl });
 
     try {
       const headers = await this.createPostHeaders();
@@ -106,7 +189,6 @@ class TistoryService {
       // 발행 상태 매핑: 0=비공개, 20=공개
       const publishStatus = visibility === '0' ? '0' : '20';
 
-      // 글쓰기 API 엔드포인트
       const postApiUrl = `https://${this.blogName}.tistory.com/manage/post.json`;
 
       const payload = {
@@ -127,14 +209,17 @@ class TistoryService {
         "attachments": [],
         "recaptchaValue": "",
         "draftSequence": null
+      };
+
+      // 썸네일 URL이 있으면 대표 이미지 설정
+      if (thumbnailUrl) {
+        payload.thumbnail = thumbnailUrl;
       }
 
-      // context.request.post로 글 발행
       const response = await this.request.post(postApiUrl, {
         headers,
         data: payload,
       });
-
 
       if (response.ok()) {
         const responseData = await response.json();
