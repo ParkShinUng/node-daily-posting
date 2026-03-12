@@ -137,34 +137,30 @@ async function main() {
     // ========================================
     // STEP 3: 카테고리별 병렬 오케스트레이터
     // ========================================
-    logger.info('[STEP 3/4] 카테고리별 병렬 포스팅 시작');
+    logger.info('[STEP 3/4] 카테고리별 순차 포스팅 시작');
     logger.info('----------------------------------------');
-    logger.info(`${products.length}개 카테고리를 병렬로 처리합니다.`);
+    logger.info(`${products.length}개 카테고리를 순차 처리합니다.`);
     logger.info('  각 카테고리: ChatGPT 탭 2개 (글 작성 ∥ 이미지+썸네일 병렬)');
     logger.info('');
 
-    const orchestratorResults = await Promise.allSettled(
-      products.map(product =>
-        orchestrate({
+    // 카테고리별 순차 처리 (ChatGPT 탭 동시 4개 → 2개로 제한)
+    for (const product of products) {
+      logger.info(`[${product.category}] 포스팅 시작`);
+      try {
+        const result = await orchestrate({
           product,
           chatgptService: chatgpt,
           tistoryService: tistory,
-        })
-      )
-    );
-
-    // 결과 수집
-    orchestratorResults.forEach((result, index) => {
-      if (result.status === 'fulfilled') {
-        allResults.push(result.value);
-      } else {
+        });
+        allResults.push(result);
+      } catch (error) {
         allResults.push({
-          category: products[index].category,
+          category: product.category,
           success: false,
-          error: result.reason?.message || '알 수 없는 오류',
+          error: error.message || '알 수 없는 오류',
         });
       }
-    });
+    }
 
     logger.info('');
 

@@ -98,50 +98,49 @@ class TistoryService {
    * @param {string} filename - 파일명
    * @returns {string} Tistory CDN 이미지 URL
    */
+  /**
+   * 업로드 응답에서 영구 이미지 URL 추출
+   * replacer 필드의 img src (영구 URL)를 우선 사용
+   */
+  extractPermanentImageUrl(data) {
+    // 1순위: replacer 필드에서 영구 URL 추출 (img 태그의 src)
+    if (data.replacer && typeof data.replacer === 'string') {
+      const srcMatch = data.replacer.match(/src\s*=\s*["']([^"']+)["']/i);
+      if (srcMatch) {
+        let url = srcMatch[1];
+        // HTML 엔티티 디코딩
+        url = url.replace(/&amp;/g, '&');
+        logger.info('replacer에서 영구 URL 추출', { url: url.substring(0, 120) });
+        return url;
+      }
+    }
+
+    // 2순위: url 필드 (임시 URL일 수 있음 — /dna/ 경로 확인)
+    if (data.url) {
+      const url = data.url;
+      // /dna/ 경로의 임시 URL인 경우 경고
+      if (url.includes('/dna/') && url.includes('expires=')) {
+        logger.warn('임시 서명 URL 감지됨 (만료 가능)', { url: url.substring(0, 120) });
+      }
+      return url;
+    }
+
+    // 3순위: attachments 배열
+    if (data.attachments && data.attachments[0]?.url) {
+      return data.attachments[0].url;
+    }
+
+    return null;
+  }
+
   async uploadImage(imageBuffer, filename = 'image.png') {
     logger.info('이미지 업로드 시작', { filename, size: imageBuffer.length });
 
     try {
       const uploadUrl = `https://${this.blogName}.tistory.com/manage/post/attach.json`;
 
-      // 방법 1: Playwright APIRequestContext (Filedata 필드명)
-      const fieldNames = ['Filedata', 'file', 'upload'];
-      let lastError = null;
-
-      for (const fieldName of fieldNames) {
-        try {
-          const response = await this.request.post(uploadUrl, {
-            multipart: {
-              [fieldName]: {
-                name: filename,
-                mimeType: 'image/png',
-                buffer: imageBuffer,
-              },
-            },
-          });
-
-          if (response.ok()) {
-            const data = await response.json();
-            const imageUrl = data.url || data.replacer || (data.attachments && data.attachments[0]?.url);
-
-            if (imageUrl) {
-              logger.info('이미지 업로드 성공', { imageUrl, fieldName });
-              return imageUrl;
-            }
-            logger.warn('업로드 응답에서 URL 추출 실패', { data: JSON.stringify(data).substring(0, 500), fieldName });
-          } else {
-            logger.warn(`업로드 실패 (필드: ${fieldName})`, { status: response.status() });
-          }
-        } catch (err) {
-          lastError = err;
-          logger.warn(`업로드 시도 실패 (필드: ${fieldName})`, { error: err.message });
-        }
-      }
-
-      // 방법 2: 페이지 컨텍스트에서 fetch 사용 (인증 쿠키 포함)
-      logger.info('페이지 컨텍스트로 업로드 재시도');
+      // 방법 1: 페이지 컨텍스트에서 fetch 사용 (인증 쿠키 포함 — 가장 안정적)
       try {
-        // Tistory 관리 페이지로 이동 (인증 컨텍스트 확보)
         const currentUrl = this.page.url();
         if (!currentUrl.includes('tistory.com/manage')) {
           await this.page.goto(`https://${this.blogName}.tistory.com/manage`, {
@@ -160,14 +159,50 @@ class TistoryService {
           return await res.json();
         }, { url: uploadUrl, bufferArray: [...imageBuffer], name: filename });
 
-        const imageUrl = data.url || data.replacer || (data.attachments && data.attachments[0]?.url);
+        logger.info('업로드 응답 (페이지 컨텍스트)', { keys: Object.keys(data), hasReplacer: !!data.replacer, hasUrl: !!data.url });
+
+        const imageUrl = this.extractPermanentImageUrl(data);
         if (imageUrl) {
-          logger.info('이미지 업로드 성공 (페이지 컨텍스트)', { imageUrl });
+          logger.info('이미지 업로드 성공 (페이지 컨텍스트 Filedata)', { imageUrl: imageUrl.substring(0, 120) });
           return imageUrl;
         }
       } catch (err) {
-        lastError = err;
-        logger.warn('페이지 컨텍스트 업로드 실패', { error: err.message });
+        logger.warn('페이지 컨텍스트 Filedata 업로드 실패', { error: err.message });
+      }
+
+      // 방법 2: Playwright APIRequestContext (여러 필드명 시도)
+      const fieldNames = ['Filedata', 'file', 'upload'];
+      let lastError = null;
+
+      for (const fieldName of fieldNames) {
+        try {
+          const response = await this.request.post(uploadUrl, {
+            multipart: {
+              [fieldName]: {
+                name: filename,
+                mimeType: 'image/png',
+                buffer: imageBuffer,
+              },
+            },
+          });
+
+          if (response.ok()) {
+            const data = await response.json();
+            logger.info(`업로드 응답 (APIRequestContext ${fieldName})`, { keys: Object.keys(data), hasReplacer: !!data.replacer, hasUrl: !!data.url });
+
+            const imageUrl = this.extractPermanentImageUrl(data);
+            if (imageUrl) {
+              logger.info('이미지 업로드 성공', { imageUrl: imageUrl.substring(0, 120), fieldName });
+              return imageUrl;
+            }
+            logger.warn('업로드 응답에서 URL 추출 실패', { data: JSON.stringify(data).substring(0, 500), fieldName });
+          } else {
+            logger.warn(`업로드 실패 (필드: ${fieldName})`, { status: response.status() });
+          }
+        } catch (err) {
+          lastError = err;
+          logger.warn(`업로드 시도 실패 (필드: ${fieldName})`, { error: err.message });
+        }
       }
 
       throw lastError || new Error('모든 업로드 방법 실패');
@@ -229,7 +264,13 @@ class TistoryService {
         return postUrl;
       }
       else {
-        throw new Error('API 방식 실패');
+        const status = response.status();
+        let errorBody = '';
+        try {
+          errorBody = await response.text();
+        } catch (e) {}
+        logger.error('글 발행 API 실패', { status, body: errorBody.substring(0, 500), contentLength: content?.length || 0 });
+        throw new Error(`API 방식 실패 (HTTP ${status}, content ${content?.length || 0}자)`);
       }
     } catch (error) {
       logger.error('글 발행 실패', { error: error.message });
